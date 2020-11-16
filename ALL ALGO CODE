@@ -1,0 +1,1834 @@
+CODE -1 NB_PREDICT.PY
+import pickle
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfTransformer
+
+#############Importing trained classifier and fitted vectorizer################
+nb_clf = pickle.load(open("nb_clf_crude_oil", 'rb'))
+vectorizer = pickle.load(open("vectorizer_crude_oil", 'rb'))
+
+##############Predict sentiment using the trained classifier###################
+
+# Import test data set
+data_pred = pd.read_csv("CrudeOil_News_Articles_test.csv", encoding = "ISO-8859-1")
+X_test = data_pred.iloc[:,1] # extract column with news article
+X_vec_test = vectorizer.transform(X_test) #don't use fit_transform here because the model is already fitted
+X_vec_test = X_vec_test.todense() #convert sparse matrix to dense
+
+# Transform data by applying term frequency inverse document frequency (TF-IDF) 
+tfidf = TfidfTransformer() #by default applies "l2" normalization
+X_tfidf_test = tfidf.fit_transform(X_vec_test)
+X_tfidf_test = X_tfidf_test.todense()
+
+
+# Predict the sentiment values
+y_pred = nb_clf.predict(X_tfidf_test)
+
+
+CODE-2
+NB- TRAIN.PY
+
+
+# import necessary libraries
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.naive_bayes import GaussianNB
+import pandas as pd
+import pickle
+
+data = pd.read_csv("CrudeOil_News_Articles.csv", encoding = "ISO-8859-1")
+
+X = data.iloc[:,1] # extract column with news article body
+
+# tokenize the news text and convert data in matrix format
+vectorizer = CountVectorizer(stop_words='english')
+X_vec = vectorizer.fit_transform(X)
+print(X_vec) # Scipy sparse matrix
+pickle.dump(vectorizer, open("vectorizer_crude_oil", 'wb')) # Save vectorizer for reuse
+X_vec = X_vec.todense() # convert sparse matrix into dense matrix
+
+# Transform data by applying term frequency inverse document frequency (TF-IDF) 
+tfidf = TfidfTransformer() #by default applies "l2" normalization
+X_tfidf = tfidf.fit_transform(X_vec)
+X_tfidf = X_tfidf.todense()
+
+
+##################Apply Naive Bayes algorithm to train data####################
+
+# Extract the news body and labels for training the classifier
+X_train = X_tfidf[:66,:]
+Y_train = data.iloc[:66,2]
+
+# Train the NB classifier
+clf = GaussianNB().fit(X_train, Y_train) 
+pickle.dump(clf, open("nb_clf_crude_oil", 'wb')) # Save classifier for reuse
+
+
+
+CODE- 3 CRUDE OIL
+
+
+# import necessary libraries
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+# Create lists to store scraped news urls, headlines and text
+url_list = [ ]
+news_text = [ ]
+headlines = [ ] 
+
+for i in range(1,3): #parameters of range function correspond to page numbers in the website with news listings
+    url = 'https://oilprice.com/Energy/Crude-Oil/Page-{}.html'.format(i)
+    request = requests.get(url)
+    soup = BeautifulSoup(request.text, "html.parser")
+    for links in soup.find_all('div', {'class': 'categoryArticle'}):
+        for info in links.find_all('a'):
+            if info.get('href') not in url_list:
+                url_list.append(info.get('href'))
+
+for www in url_list:
+    temp = []
+    headlines.append(www.split("/")[-1].replace('-',' '))
+    request = requests.get(www)
+    soup = BeautifulSoup(request.text, "html.parser")
+    for news in soup.find_all('p'):
+            temp.append(news.text)
+    
+    #identify the last line of the news article
+    for last_sentence in reversed(temp):
+        if last_sentence.split(" ")[0]=="By" and last_sentence.split(" ")[-1]=="Oilprice.com":
+            break
+        elif last_sentence.split(" ")[0]=="By":
+            break
+    
+    #prune non news related text from the scraped data to create the news text
+    joined_text = ' '.join(temp[temp.index("More Info")+1:temp.index(last_sentence)])
+    news_text.append(joined_text)
+
+
+# save news text along with the news headline in a dataframe      
+news_df = pd.DataFrame({ 'Headline': headlines,
+                         'News': news_text,
+                       })
+    
+# export the news data into a csv file
+news_df.to_csv("CrudeOil_News_Articles.csv",index=False)      
+
+
+CODE-4 CRUDE OIL VADER
+# import necessary libraries
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Create lists to store scraped news urls, headlines and text
+url_list = [ ]
+date_time = [ ]
+news_text = [ ]
+headlines = [ ]  
+
+for i in range(1,3): #parameters of range function correspond to page numbers in the website with news listings
+    #get the list of unique urls in the page
+    url = 'https://oilprice.com/Energy/Crude-Oil/Page-{}.html'.format(i)
+    request = requests.get(url)
+    soup = BeautifulSoup(request.text, "html.parser")
+    for links in soup.find_all('div', {'class': 'categoryArticle'}):
+        for info in links.find_all('a'):
+            if info.get('href') not in url_list:
+                url_list.append(info.get('href'))
+
+for www in url_list:
+    #access each url
+    headlines.append(www.split("/")[-1].replace('-',' '))
+    request = requests.get(www)
+    soup = BeautifulSoup(request.text, "html.parser")
+    
+    #store date and time of publication of the article
+    for dates in soup.find_all('span', {'class': 'article_byline'}):
+        date_time.append(dates.text.split('-')[-1])
+    
+    #store the text of the news
+    temp = []
+    for news in soup.find_all('p'):
+            temp.append(news.text)
+    
+    #identify the last line of the news article
+    for last_sentence in reversed(temp):
+        if last_sentence.split(" ")[0]=="By" and last_sentence.split(" ")[-1]=="Oilprice.com":
+            break
+        elif last_sentence.split(" ")[0]=="By":
+            break
+    
+    #prune non news related text from the scraped data to create the news text
+    joined_text = ' '.join(temp[temp.index("More Info")+1:temp.index(last_sentence)])
+    news_text.append(joined_text)
+
+
+# save news text along with the news headline in a dataframe      
+news_df = pd.DataFrame({ 'Date' : date_time,
+                         'Headline': headlines,
+                         'News': news_text,
+                       })
+
+# use VADER to perform sentiment analysis on stored news articles
+analyser = SentimentIntensityAnalyzer()
+
+def comp_score(text):
+   return analyser.polarity_scores(text)["compound"]   
+  
+news_df["sentiment"] = news_df["News"].apply(comp_score)
+
+CODE-5 VADER TBOX
+
+From vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+analyser = SentimentIntensityAnalyzer()
+analyser.polarity_scores("This is a good course")
+analyser.polarity_scores("This is an awesome course") # degree modifier
+analyser.polarity_scores("The instructor is so cool")
+analyser.polarity_scores("The instructor is so cool!!") # exclaimataion changes score
+analyser.polarity_scores("The instructor is so COOL!!") # Capitalization changes score
+analyser.polarity_scores("Machine learning makes me :)") #emoticons
+analyser.polarity_scores("His antics had me ROFL")
+analyser.polarity_scores("The movie SUX") #Slangs
+
+
+################################Textblob Demo##################################
+
+from textblob import TextBlob
+
+TextBlob("His").sentiment
+TextBlob("remarkable").sentiment
+TextBlob("work").sentiment
+TextBlob("ethic").sentiment
+TextBlob("impressed").sentiment
+TextBlob("me").sentiment
+TextBlob("His remarkable work ethic impressed me").sentiment
+
+Code-6 nltk intro
+
+"""
+Vectorizing documents using NLTK
+
+"""
+
+
+text = "I am not a sentimental person but I believe in the utility of sentiment analysis"
+
+# Tokenization
+from nltk.tokenize import word_tokenize
+tokens = word_tokenize(text)
+print(tokens)
+
+# Lemmatization
+from nltk.stem import WordNetLemmatizer
+lemmatizer = WordNetLemmatizer()
+tokens=[lemmatizer.lemmatize(word) for word in tokens]
+
+# Stemming
+from nltk.stem import PorterStemmer
+tokens=word_tokenize(text.lower())
+ps = PorterStemmer()
+tokens=[ps.stem(word) for word in tokens]
+print(tokens)
+
+# Stop words
+import nltk
+stopwords = nltk.corpus.stopwords.words('english')
+print(stopwords)
+
+tokens_new = [j for j in tokens if j not in stopwords]
+
+
+Code-7 sma crossover
+
+
+# -*- coding: utf-8 -*-
+# =============================================================================
+# Automated trading script for OANDA - SMA crossover
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import oandapyV20
+import oandapyV20.endpoints.instruments as instruments
+import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.trades as trades
+import pandas as pd
+import matplotlib.pyplot as plt
+import time
+
+#initiating API connection and defining trade parameters
+token_path = "D:\\Udemy\\Quantitative Investing Using Python\\7_API Trading\\oanda_key.txt"
+client = oandapyV20.API(access_token=open(token_path,'r').read(),environment="practice")
+account_id = "101-002-12759455-001"
+
+#defining strategy parameters
+pairs = ['EUR_USD','GBP_USD','USD_CHF','AUD_USD','USD_CAD'] #currency pairs to be included in the strategy
+#pairs = ['EUR_JPY','USD_JPY','AUD_JPY','AUD_USD','AUD_NZD','NZD_USD']
+pos_size = 2000 #max capital allocated/position size for any currency pair
+upward_sma_dir = {}
+dnward_sma_dir = {}
+for i in pairs:
+    upward_sma_dir[i] = False
+    dnward_sma_dir[i] = False
+
+
+def stochastic(df,a,b,c):
+    "function to calculate stochastic"
+    df['k']=((df['c'] - df['l'].rolling(a).min())/(df['h'].rolling(a).max()-df['l'].rolling(a).min()))*100
+    df['K']=df['k'].rolling(b).mean() 
+    df['D']=df['K'].rolling(c).mean()
+    return df
+
+def SMA(df,a,b):
+    "function to calculate stochastic"
+    df['sma_fast']=df['c'].rolling(a).mean() 
+    df['sma_slow']=df['c'].rolling(b).mean() 
+    return df
+
+def candles(instrument):
+    params = {"count": 800,"granularity": "M5"} #granularity can be in seconds S5 - S30, minutes M1 - M30, hours H1 - H12, days D, weeks W or months M
+    candles = instruments.InstrumentsCandles(instrument=instrument,params=params)
+    client.request(candles)
+    ohlc_dict = candles.response["candles"]
+    ohlc = pd.DataFrame(ohlc_dict)
+    ohlc_df = ohlc.mid.dropna().apply(pd.Series)
+    ohlc_df["volume"] = ohlc["volume"]
+    ohlc_df.index = ohlc["time"]
+    ohlc_df = ohlc_df.apply(pd.to_numeric)
+    return ohlc_df
+
+def market_order(instrument,units,sl):
+    """units can be positive or negative, stop loss (in pips) added/subtracted to price """  
+    account_id = "101-002-12759455-001"
+    data = {
+            "order": {
+            "price": "",
+            "stopLossOnFill": {
+            "trailingStopLossOnFill": "GTC",
+            "distance": str(sl)
+                              },
+            "timeInForce": "FOK",
+            "instrument": str(instrument),
+            "units": str(units),
+            "type": "MARKET",
+            "positionFill": "DEFAULT"
+                    }
+            }
+    r = orders.OrderCreate(accountID=account_id, data=data)
+    client.request(r)
+
+def ATR(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['h']-df['l'])
+    df['H-PC']=abs(df['h']-df['c'].shift(1))
+    df['L-PC']=abs(df['l']-df['c'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis=1)
+    return round(df2["ATR"][-1],2)
+
+def trade_signal(df,curr):
+    "function to generate signal"
+    global upward_sma_dir, dnward_sma_dir
+    signal = ""
+    if df['sma_fast'][-1] > df['sma_slow'][-1] and df['sma_fast'][-2] < df['sma_slow'][-2]:
+        upward_sma_dir[curr] = True
+        dnward_sma_dir[curr] = False
+    if df['sma_fast'][-1] < df['sma_slow'][-1] and df['sma_fast'][-2] > df['sma_slow'][-2]:
+        upward_sma_dir[curr] = False
+        dnward_sma_dir[curr] = True  
+    if upward_sma_dir[curr] == True and min(df['K'][-1],df['D'][-1]) > 25 and max(df['K'][-2],df['D'][-2]) < 25:
+        signal = "Buy"
+    if dnward_sma_dir[curr] == True and min(df['K'][-1],df['D'][-1]) > 75 and max(df['K'][-2],df['D'][-2]) < 75:
+        signal = "Sell"
+
+    plt.subplot(211)
+    plt.plot(df.iloc[-50:,[3,-2,-1]])
+    plt.title('SMA Crossover & Stochastic')
+    plt.legend(('close','sma_fast','sma_slow'),loc='upper left')
+    
+    plt.subplot(212)
+    plt.plot(df.iloc[-50:,[-4,-3]])
+    plt.hlines(y=25,xmin=0,xmax=50,linestyles='dashed')
+    plt.hlines(y=75,xmin=0,xmax=50,linestyles='dashed')
+    plt.show()
+    
+    return signal
+
+def main():
+    global pairs
+    try:
+        r = trades.OpenTrades(accountID=account_id)
+        open_trades = client.request(r)['trades']
+        curr_ls = []
+        for i in range(len(open_trades)):
+            curr_ls.append(open_trades[i]['instrument'])
+        pairs = [i for i in pairs if i not in curr_ls]
+        for currency in pairs:
+            print("analyzing ",currency)
+            data = candles(currency)
+            ohlc_df = stochastic(data,14,3,3)
+            ohlc_df = SMA(ohlc_df,100,200)
+            signal = trade_signal(ohlc_df,currency)
+            if signal == "Buy":
+                market_order(currency,pos_size,3*ATR(data,120))
+                print("New long position initiated for ", currency)
+            elif signal == "Sell":
+                market_order(currency,-1*pos_size,3*ATR(data,120))
+                print("New short position initiated for ", currency)
+    except:
+        print("error encountered....skipping this iteration")
+
+
+# Continuous execution        
+starttime=time.time()
+timeout = time.time() + 60*60*1  # 60 seconds times 60 meaning the script will run for 1 hr
+while time.time() <= timeout:
+    try:
+        print("passthrough at ",time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+        main()
+        time.sleep(300 - ((time.time() - starttime) % 300.0)) # 5 minute interval between each new execution
+    except KeyboardInterrupt:
+        print('\n\nKeyboard exception received. Exiting.')
+        exit()
+
+
+Code-8 onada.py
+
+# =============================================================================
+# OANDA API testing
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+"""install the oanda python library
+!pip install oandapyV20 
+"""
+
+import oandapyV20
+import oandapyV20.endpoints.instruments as instruments
+import oandapyV20.endpoints.pricing as pricing
+import oandapyV20.endpoints.accounts as accounts
+import oandapyV20.endpoints.orders as orders
+import oandapyV20.endpoints.trades as trades
+import pandas as pd
+
+#initiating API connection and defining trade parameters
+token_path = "D:\\Udemy\\Quantitative Investing Using Python\\7_API Trading\\oanda_key.txt"
+client = oandapyV20.API(access_token=open(token_path,'r').read(),environment="practice")
+
+
+#get historical data (candles)
+params = {"count": 150,"granularity": "M5"} #granularity can be in seconds S5 - S30, minutes M1 - M30, hours H1 - H12, days D, weeks W or months M
+candles = instruments.InstrumentsCandles(instrument="USD_JPY",params=params)
+client.request(candles)
+#print(candles.response)
+ohlc_dict = candles.response["candles"]
+ohlc = pd.DataFrame(ohlc_dict)
+ohlc_df = ohlc.mid.dropna().apply(pd.Series)
+ohlc_df["volume"] = ohlc["volume"]
+ohlc_df.index = ohlc["time"]
+ohlc_df = ohlc_df.apply(pd.to_numeric)
+
+#streaming data
+params = {"instruments": "USD_JPY"}
+account_id = "101-002-12759455-001"
+r = pricing.PricingInfo(accountID=account_id, params=params)
+i=0
+while i <=20:
+    rv = client.request(r)
+    print("Time=",rv["time"])
+    print("bid=",rv["prices"][0]["closeoutBid"])
+    print("ask=",rv["prices"][0]["closeoutAsk"])
+    print("*******************")
+    i+=1
+    
+    
+#trading account details
+r = accounts.AccountDetails(accountID=account_id)
+client.request(r)
+print(r.response)
+
+#trading account summary
+r = accounts.AccountSummary(accountID=account_id)
+client.request(r)
+print(r.response)
+
+#orders
+data = {
+        "order": {
+        "price": "1.15",
+        "stopLossOnFill": {
+        "timeInForce": "GTC",
+        "price": "1.2"
+                          },
+        "timeInForce": "FOK",
+        "instrument": "USD_CAD",
+        "units": "-100",
+        "type": "MARKET",
+        "positionFill": "DEFAULT"
+                }
+        }
+            
+r = orders.OrderCreate(accountID=account_id, data=data)
+client.request(r)
+
+#slightly more sophisticated way of placing an order
+def ATR(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['h']-df['l'])
+    df['H-PC']=abs(df['h']-df['c'].shift(1))
+    df['L-PC']=abs(df['l']-df['c'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis=1)
+    return round(df2["ATR"][-1],2)
+
+
+def market_order(instrument,units,sl):
+    """units can be positive or negative, stop loss (in pips) added/subtracted to price """
+    params = {"instruments": instrument}
+    account_id = "101-002-12759455-001"
+    r = pricing.PricingInfo(accountID=account_id, params=params)
+    rv = client.request(r)
+    if units > 0:
+        price = float(rv["prices"][0]["closeoutAsk"])
+        st_ls = price - sl
+    else:
+        price = float(rv["prices"][0]["closeoutBid"])
+        st_ls = price + sl
+    
+    data = {
+            "order": {
+            "price": "",
+            "stopLossOnFill": {
+            "timeInForce": "GTC",
+            "price": str(st_ls)
+                              },
+            "timeInForce": "FOK",
+            "instrument": str(instrument),
+            "units": str(units),
+            "type": "MARKET",
+            "positionFill": "DEFAULT"
+                    }
+            }
+    return data
+
+
+r = orders.OrderCreate(accountID=account_id, data=market_order("USD_JPY",-100,3*ATR(ohlc_df,120)))
+client.request(r)
+
+
+#check trades
+r = trades.OpenTrades(accountID=account_id)
+client.request(r)
+#client.request(r)['trades'][0]['currentUnits']
+
+
+Code-11 fxcm renko macd
+# =============================================================================
+# Automated trading script I - MACD
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import fxcmpy
+import numpy as np
+from stocktrends import Renko
+import statsmodels.api as sm
+import time
+import copy
+
+#initiating API connection and defining trade parameters
+token_path = "D:\\Udemy\\Quantitative Investing Using Python\\7_API Trading\\key.txt"
+con = fxcmpy.fxcmpy(access_token = open(token_path,'r').read(), log_level = 'error', server='demo')
+
+#defining strategy parameters
+pairs = ['EUR/USD','GBP/USD','USD/CHF','AUD/USD','USD/CAD'] #currency pairs to be included in the strategy
+#pairs = ['EUR/JPY','USD/JPY','AUD/JPY','AUD/NZD','NZD/USD']
+pos_size = 10 #max capital allocated/position size for any currency pair
+
+
+def MACD(DF,a,b,c):
+    """function to calculate MACD
+       typical values a = 12; b =26, c =9"""
+    df = DF.copy()
+    df["MA_Fast"]=df["Close"].ewm(span=a,min_periods=a).mean()
+    df["MA_Slow"]=df["Close"].ewm(span=b,min_periods=b).mean()
+    df["MACD"]=df["MA_Fast"]-df["MA_Slow"]
+    df["Signal"]=df["MACD"].ewm(span=c,min_periods=c).mean()
+    df.dropna(inplace=True)
+    return (df["MACD"],df["Signal"])
+
+def ATR(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['High']-df['Low'])
+    df['H-PC']=abs(df['High']-df['Close'].shift(1))
+    df['L-PC']=abs(df['Low']-df['Close'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis=1)
+    return df2
+
+def slope(ser,n):
+    "function to calculate the slope of n consecutive points on a plot"
+    slopes = [i*0 for i in range(n-1)]
+    for i in range(n,len(ser)+1):
+        y = ser[i-n:i]
+        x = np.array(range(n))
+        y_scaled = (y - y.min())/(y.max() - y.min())
+        x_scaled = (x - x.min())/(x.max() - x.min())
+        x_scaled = sm.add_constant(x_scaled)
+        model = sm.OLS(y_scaled,x_scaled)
+        results = model.fit()
+        slopes.append(results.params[-1])
+    slope_angle = (np.rad2deg(np.arctan(np.array(slopes))))
+    return np.array(slope_angle)
+
+def renko_DF(DF):
+    "function to convert ohlc data into renko bricks"
+    df = DF.copy()
+    df.reset_index(inplace=True)
+    df = df.iloc[:,[0,1,2,3,4,5]]
+    df.columns = ["date","open","close","high","low","volume"]
+    df2 = Renko(df)
+    df2.brick_size = round(ATR(DF,120)["ATR"][-1],4)
+    renko_df = df2.get_bricks()
+    renko_df["bar_num"] = np.where(renko_df["uptrend"]==True,1,np.where(renko_df["uptrend"]==False,-1,0))
+    for i in range(1,len(renko_df["bar_num"])):
+        if renko_df["bar_num"][i]>0 and renko_df["bar_num"][i-1]>0:
+            renko_df["bar_num"][i]+=renko_df["bar_num"][i-1]
+        elif renko_df["bar_num"][i]<0 and renko_df["bar_num"][i-1]<0:
+            renko_df["bar_num"][i]+=renko_df["bar_num"][i-1]
+    renko_df.drop_duplicates(subset="date",keep="last",inplace=True)
+    return renko_df
+
+def renko_merge(DF):
+    "function to merging renko df with original ohlc df"
+    df = copy.deepcopy(DF)
+    df["Date"] = df.index
+    renko = renko_DF(df)
+    renko.columns = ["Date","open","high","low","close","uptrend","bar_num"]
+    merged_df = df.merge(renko.loc[:,["Date","bar_num"]],how="outer",on="Date")
+    merged_df["bar_num"].fillna(method='ffill',inplace=True)
+    merged_df["macd"]= MACD(merged_df,12,26,9)[0]
+    merged_df["macd_sig"]= MACD(merged_df,12,26,9)[1]
+    merged_df["macd_slope"] = slope(merged_df["macd"],5)
+    merged_df["macd_sig_slope"] = slope(merged_df["macd_sig"],5)
+    return merged_df
+
+def trade_signal(MERGED_DF,l_s):
+    "function to generate signal"
+    signal = ""
+    df = copy.deepcopy(MERGED_DF)
+    if l_s == "":
+        if df["bar_num"].tolist()[-1]>=2 and df["macd"].tolist()[-1]>df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]>df["macd_sig_slope"].tolist()[-1]:
+            signal = "Buy"
+        elif df["bar_num"].tolist()[-1]<=-2 and df["macd"].tolist()[-1]<df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]<df["macd_sig_slope"].tolist()[-1]:
+            signal = "Sell"
+            
+    elif l_s == "long":
+        if df["bar_num"].tolist()[-1]<=-2 and df["macd"].tolist()[-1]<df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]<df["macd_sig_slope"].tolist()[-1]:
+            signal = "Close_Sell"
+        elif df["macd"].tolist()[-1]<df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]<df["macd_sig_slope"].tolist()[-1]:
+            signal = "Close"
+            
+    elif l_s == "short":
+        if df["bar_num"].tolist()[-1]>=2 and df["macd"].tolist()[-1]>df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]>df["macd_sig_slope"].tolist()[-1]:
+            signal = "Close_Buy"
+        elif df["macd"].tolist()[-1]>df["macd_sig"].tolist()[-1] and df["macd_slope"].tolist()[-1]>df["macd_sig_slope"].tolist()[-1]:
+            signal = "Close"
+    return signal
+    
+
+def main():
+    try:
+        open_pos = con.get_open_positions()
+        for currency in pairs:
+            long_short = ""
+            if len(open_pos)>0:
+                open_pos_cur = open_pos[open_pos["currency"]==currency]
+                if len(open_pos_cur)>0:
+                    if open_pos_cur["isBuy"].tolist()[0]==True:
+                        long_short = "long"
+                    elif open_pos_cur["isBuy"].tolist()[0]==False:
+                        long_short = "short"   
+            data = con.get_candles(currency, period='m5', number=250)
+            ohlc = data.iloc[:,[0,1,2,3,8]]
+            ohlc.columns = ["Open","Close","High","Low","Volume"]
+            signal = trade_signal(renko_merge(ohlc),long_short)
+    
+            if signal == "Buy":
+                con.open_trade(symbol=currency, is_buy=True, is_in_pips=True, amount=pos_size, 
+                               time_in_force='GTC', stop=-8, trailing_step =True, order_type='AtMarket')
+                print("New long position initiated for ", currency)
+            elif signal == "Sell":
+                con.open_trade(symbol=currency, is_buy=False, is_in_pips=True, amount=pos_size, 
+                               time_in_force='GTC', stop=-8, trailing_step =True, order_type='AtMarket')
+                print("New short position initiated for ", currency)
+            elif signal == "Close":
+                con.close_all_for_symbol(currency)
+                print("All positions closed for ", currency)
+            elif signal == "Close_Buy":
+                con.close_all_for_symbol(currency)
+                print("Existing Short position closed for ", currency)
+                con.open_trade(symbol=currency, is_buy=True, is_in_pips=True, amount=pos_size, 
+                               time_in_force='GTC', stop=-8, trailing_step =True, order_type='AtMarket')
+                print("New long position initiated for ", currency)
+            elif signal == "Close_Sell":
+                con.close_all_for_symbol(currency)
+                print("Existing long position closed for ", currency)
+                con.open_trade(symbol=currency, is_buy=False, is_in_pips=True, amount=pos_size, 
+                               time_in_force='GTC', stop=-8, trailing_step =True, order_type='AtMarket')
+                print("New short position initiated for ", currency)
+    except:
+        print("error encountered....skipping this iteration")
+
+
+# Continuous execution        
+starttime=time.time()
+timeout = time.time() + 60*60*1  # 60 seconds times 60 meaning the script will run for 1 hr
+while time.time() <= timeout:
+    try:
+        print("passthrough at ",time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time())))
+        main()
+        time.sleep(300 - ((time.time() - starttime) % 300.0)) # 5 minute interval between each new execution
+    except KeyboardInterrupt:
+        print('\n\nKeyboard exception received. Exiting.')
+        exit()
+
+# Close all positions and exit
+for currency in pairs:
+    print("closing all positions for ",currency)
+    con.close_all_for_symbol(currency)
+con.close()
+
+Code- 12  fxcm
+
+import fxcmpy
+import time
+
+#initiating API connection and defining trade parameters
+token_path = "D:\\Udemy\\Quantitative Investing Using Python\\7_API Trading\\key.txt"
+con = fxcmpy.fxcmpy(access_token = open(token_path,'r').read(), log_level = 'error', server='demo')
+pair = 'EUR/USD'
+
+
+#get historical data
+data = con.get_candles(pair, period='m5', number=250)
+"""periods can be m1, m5, m15 and m30, H1, H2, H3, H4, H6 and H8, D1, W1, M1"""
+
+#streaming data
+"for streaming data, we first need ti subscribe to a currency pair"
+con.subscribe_market_data('EUR/USD')
+con.get_last_price('EUR/USD')
+con.get_prices('EUR/USD')
+con.unsubscribe_market_data('EUR/USD')
+
+#trading account data
+con.get_accounts().T
+
+con.get_open_positions().T
+con.get_open_positions_summary().T
+
+con.get_closed_positions()
+
+con.get_orders() 
+
+#orders
+con.create_market_buy_order('EUR/USD', 10)
+con.create_market_buy_order('USD/CAD', 10)
+con.create_market_sell_order('USD/CAD', 20)
+con.create_market_sell_order('EUR/USD', 10)
+
+order = con.open_trade(symbol='USD/CAD', is_buy=False,
+                       is_in_pips=True,
+                       amount=10, time_in_force='GTC',
+                       stop=-9, trailing_step =True,
+                       order_type='AtMarket', limit=9)
+
+con.close_trade(trade_id=tradeId, amount=1000)
+con.close_all_for_symbol('USD/CAD')
+
+#closing connection
+con.close()
+
+
+Code-13     time
+
+import time
+import numpy as np
+
+def fibonacci(n):
+   """Recursive function to print nth Fibonacci number"""
+   if n <= 1:
+       return n
+   else:
+       return(fibonacci(n-1) + fibonacci(n-2))
+
+def main():
+    num = np.random.randint(1,25)
+    print("%dth fibonacci number is : %d"%(num,fibonacci(num)))
+
+# Continuous execution        
+starttime=time.time()
+timeout = time.time() + 60*2  # 60 seconds times 2 meaning the script will run for 2 minutes
+while time.time() <= timeout:
+    try:
+        main()
+        time.sleep(5 - ((time.time() - starttime) % 5.0)) # 5 second interval between each new iteration
+    except KeyboardInterrupt:
+        print('\n\nKeyboard exception received. Exiting.')
+        exit()
+
+
+Code-15 pitroski f score revised
+
+# ============================================================================
+# Piotroski f score implementation (data scraped from yahoo finance)
+# Author - Mayank Rasu
+
+# Please report bugs/issues in the Q&A section
+# =============================================================================
+
+
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+tickers = ["AXP","AAPL","BA","CAT","CVX","CSCO","DIS","DOW", "XOM",
+           "HD","IBM","INTC","JNJ","KO","MCD","MMM","MRK","MSFT",
+           "NKE","PFE","PG","TRV","UTX","UNH","VZ","V","WMT","WBA"]
+
+#list of tickers whose financial data needs to be extracted
+financial_dir_cy = {} #directory to store current year's information
+financial_dir_py = {} #directory to store last year's information
+financial_dir_py2 = {} #directory to store last to last year's information
+
+for ticker in tickers:
+    try:
+        print("scraping financial statement data for ",ticker)
+        temp_dir = {}
+        temp_dir2 = {}
+        temp_dir3 = {}
+    #getting balance sheet data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/balance-sheet?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3]
+        
+        #getting income statement data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/financials?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3]
+        
+        #getting cashflow statement data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/cash-flow?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3] 
+        
+        #combining all extracted information with the corresponding ticker
+        financial_dir_cy[ticker] = temp_dir
+        financial_dir_py[ticker] = temp_dir2
+        financial_dir_py2[ticker] = temp_dir3
+    except:
+        print("Problem scraping data for ",ticker)
+
+
+#storing information in pandas dataframe
+combined_financials_cy = pd.DataFrame(financial_dir_cy)
+#combined_financials_cy.dropna(axis=1,inplace=True) #dropping columns with NaN values
+combined_financials_py = pd.DataFrame(financial_dir_py)
+#combined_financials_py.dropna(axis=1,inplace=True)
+combined_financials_py2 = pd.DataFrame(financial_dir_py2)
+#combined_financials_py2.dropna(axis=1,inplace=True)
+tickers = combined_financials_cy.columns #updating the tickers list based on only those tickers whose values were successfully extracted
+
+# selecting relevant financial information for each stock using fundamental data
+stats = ["Net income available to common shareholders",
+         "Total assets",
+         "Net cash provided by operating activities",
+         "Long-term debt",
+         "Other long-term liabilities",
+         "Total current assets",
+         "Total current liabilities",
+         "Common stock",
+         "Total revenue",
+         "Gross profit"] # change as required
+
+indx = ["NetIncome","TotAssets","CashFlowOps","LTDebt","OtherLTDebt",
+        "CurrAssets","CurrLiab","CommStock","TotRevenue","GrossProfit"]
+
+
+def info_filter(df,stats,indx):
+    """function to filter relevant financial information for each 
+       stock and transforming string inputs to numeric"""
+    tickers = df.columns
+    all_stats = {}
+    for ticker in tickers:
+        try:
+            temp = df[ticker]
+            ticker_stats = []
+            for stat in stats:
+                ticker_stats.append(temp.loc[stat])
+            all_stats['{}'.format(ticker)] = ticker_stats
+        except:
+            print("can't read data for ",ticker)
+    
+    all_stats_df = pd.DataFrame(all_stats,index=indx)
+    
+    # cleansing of fundamental data imported in dataframe
+    all_stats_df[tickers] = all_stats_df[tickers].replace({',': ''}, regex=True)
+    for ticker in all_stats_df.columns:
+        all_stats_df[ticker] = pd.to_numeric(all_stats_df[ticker].values,errors='coerce')
+    return all_stats_df
+
+def piotroski_f(df_cy,df_py,df_py2):
+    """function to calculate f score of each stock and output information as dataframe"""
+    f_score = {}
+    tickers = df_cy.columns
+    for ticker in tickers:
+        ROA_FS = int(df_cy.loc["NetIncome",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2) > 0)
+        CFO_FS = int(df_cy.loc["CashFlowOps",ticker] > 0)
+        ROA_D_FS = int(df_cy.loc["NetIncome",ticker]/(df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2 > df_py.loc["NetIncome",ticker]/(df_py.loc["TotAssets",ticker]+df_py2.loc["TotAssets",ticker])/2)
+        CFO_ROA_FS = int(df_cy.loc["CashFlowOps",ticker]/df_cy.loc["TotAssets",ticker] > df_cy.loc["NetIncome",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2))
+        LTD_FS = int((df_cy.loc["LTDebt",ticker] + df_cy.loc["OtherLTDebt",ticker])<(df_py.loc["LTDebt",ticker] + df_py.loc["OtherLTDebt",ticker]))
+        CR_FS = int((df_cy.loc["CurrAssets",ticker]/df_cy.loc["CurrLiab",ticker])>(df_py.loc["CurrAssets",ticker]/df_py.loc["CurrLiab",ticker]))
+        DILUTION_FS = int(df_cy.loc["CommStock",ticker] <= df_py.loc["CommStock",ticker])
+        GM_FS = int((df_cy.loc["GrossProfit",ticker]/df_cy.loc["TotRevenue",ticker])>(df_py.loc["GrossProfit",ticker]/df_py.loc["TotRevenue",ticker]))
+        ATO_FS = int(df_cy.loc["TotRevenue",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2)>df_py.loc["TotRevenue",ticker]/((df_py.loc["TotAssets",ticker]+df_py2.loc["TotAssets",ticker])/2))
+        f_score[ticker] = [ROA_FS,CFO_FS,ROA_D_FS,CFO_ROA_FS,LTD_FS,CR_FS,DILUTION_FS,GM_FS,ATO_FS]
+    f_score_df = pd.DataFrame(f_score,index=["PosROA","PosCFO","ROAChange","Accruals","Leverage","Liquidity","Dilution","GM","ATO"])
+    return f_score_df
+
+# Selecting stocks with highest Piotroski f score
+transformed_df_cy = info_filter(combined_financials_cy,stats,indx)
+transformed_df_py = info_filter(combined_financials_py,stats,indx)
+transformed_df_py2 = info_filter(combined_financials_py2,stats,indx)
+
+f_score_df = piotroski_f(transformed_df_cy,transformed_df_py,transformed_df_py2)
+f_score_df.sum().sort_values(ascending=False)
+
+
+
+Code- 16 pitroski score
+
+
+# ============================================================================
+# Piotroski f score implementation (data scraped from yahoo finance)
+# Author - Mayank Rasu
+
+# Please report bugs/issues in the Q&A section
+# =============================================================================
+
+
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+tickers = ["MMM","AXP","AAPL","BA","CAT","CVX","CSCO","KO","DIS","DWDP",
+           "XOM","GE","GS","HD","IBM","INTC","JNJ","JPM","MCD","MRK",
+           "MSFT","NKE","PFE","PG","TRV","UTX","UNH","VZ","V","WMT"]
+
+
+#list of tickers whose financial data needs to be extracted
+financial_dir_cy = { } #directory to store current year's information
+financial_dir_py = { } #directory to store last year's information
+financial_dir_py2 = { } #directory to store last to last year's information
+
+for ticker in tickers:
+    #getting balance sheet data from yahoo finance for the given ticker
+    print("scraping financial statement data for ",ticker)
+    temp_dir = { }
+    temp_dir2 =   { }
+    temp_dir3 = {  } 
+    url = 'https://in.finance.yahoo.com/quote/'+ticker+'/balance-sheet?p='+ticker
+    page = requests.get(url)
+    page_content = page.content
+    soup = BeautifulSoup(page_content,'html.parser')
+    tabl = soup.find_all("table", {"class" : "Lh(1.7) W(100%) M(0)"})
+    for t in tabl:
+        rows = t.find_all("tr")
+        for row in rows:
+            if len(row.get_text(separator='|').split("|")[0:2])>1:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3]
+    
+    #getting income statement data from yahoo finance for the given ticker
+
+    url = 'https://in.finance.yahoo.com/quote/'+ticker+'/financials?p='+ticker
+    page = requests.get(url)
+    page_content = page.content
+    soup = BeautifulSoup(page_content,'html.parser')
+    tabl = soup.find_all("table", {"class" : "Lh(1.7) W(100%) M(0)"})
+    for t in tabl:
+        rows = t.find_all("tr")
+        for row in rows:
+            if len(row.get_text(separator='|').split("|")[0:2])>1:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3]
+    
+    #getting cashflow statement data from yahoo finance for the given ticker
+    url = 'https://in.finance.yahoo.com/quote/'+ticker+'/cash-flow?p='+ticker
+    page = requests.get(url)
+    page_content = page.content
+    soup = BeautifulSoup(page_content,'html.parser')
+    tabl = soup.find_all("table", {"class" : "Lh(1.7) W(100%) M(0)"})
+    for t in tabl:
+        rows = t.find_all("tr")
+        for row in rows:
+            if len(row.get_text(separator='|').split("|")[0:2])>1:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+                temp_dir2[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[2]
+                temp_dir3[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[3]
+    
+    
+    #combining all extracted information with the corresponding ticker
+    financial_dir_cy[ticker] = temp_dir
+    financial_dir_py[ticker] = temp_dir2
+    financial_dir_py2[ticker] = temp_dir3
+
+
+#storing information in pandas dataframe
+combined_financials_cy = pd.DataFrame(financial_dir_cy)
+combined_financials_cy.dropna(axis=1,inplace=True) #dropping columns with all NaN values
+combined_financials_py = pd.DataFrame(financial_dir_py)
+combined_financials_py.dropna(axis=1,inplace=True)
+combined_financials_py2 = pd.DataFrame(financial_dir_py2)
+combined_financials_py2.dropna(axis=1,inplace=True)
+tickers = combined_financials_cy.columns #updating the tickers list based on only those tickers whose values were successfully extracted
+
+# selecting relevant financial information for each stock using fundamental data
+stats = ["Net income applicable to common shares",
+         "Total assets",
+         "Total cash flow from operating activities",
+         "Long-term debt",
+         "Other liabilities",
+         "Total current assets",
+         "Total current liabilities",
+         "Common stock",
+         "Total revenue",
+         "Gross profit"] # change as required
+
+indx = ["NetIncome","TotAssets","CashFlowOps","LTDebt","OtherLTDebt",
+        "CurrAssets","CurrLiab","CommStock","TotRevenue","GrossProfit"]
+
+
+def info_filter(df,stats,indx):
+    """function to filter relevant financial information for each 
+       stock and transforming string inputs to numeric"""
+    tickers = df.columns
+    all_stats = {}
+    for ticker in tickers:
+        try:
+            temp = df[ticker]
+            ticker_stats = []
+            for stat in stats:
+                ticker_stats.append(temp.loc[stat])
+            all_stats['{}'.format(ticker)] = ticker_stats
+        except:
+            print("can't read data for ",ticker)
+    
+    all_stats_df = pd.DataFrame(all_stats,index=indx)
+    
+    # cleansing of fundamental data imported in dataframe
+    all_stats_df[tickers] = all_stats_df[tickers].replace({',': ''}, regex=True)
+    for ticker in all_stats_df.columns:
+        all_stats_df[ticker] = pd.to_numeric(all_stats_df[ticker].values,errors='coerce')
+    return all_stats_df
+
+def piotroski_f(df_cy,df_py,df_py2):
+    """function to calculate f score of each stock and output information as dataframe"""
+    f_score = {}
+    tickers = df_cy.columns
+    for ticker in tickers:
+        ROA_FS = int(df_cy.loc["NetIncome",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2) > 0)
+        CFO_FS = int(df_cy.loc["CashFlowOps",ticker] > 0)
+        ROA_D_FS = int(df_cy.loc["NetIncome",ticker]/(df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2 > df_py.loc["NetIncome",ticker]/(df_py.loc["TotAssets",ticker]+df_py2.loc["TotAssets",ticker])/2)
+        CFO_ROA_FS = int(df_cy.loc["CashFlowOps",ticker]/df_cy.loc["TotAssets",ticker] > df_cy.loc["NetIncome",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2))
+        LTD_FS = int((df_cy.loc["LTDebt",ticker] + df_cy.loc["OtherLTDebt",ticker])<(df_py.loc["LTDebt",ticker] + df_py.loc["OtherLTDebt",ticker]))
+        CR_FS = int((df_cy.loc["CurrAssets",ticker]/df_cy.loc["CurrLiab",ticker])>(df_py.loc["CurrAssets",ticker]/df_py.loc["CurrLiab",ticker]))
+        DILUTION_FS = int(df_cy.loc["CommStock",ticker] <= df_py.loc["CommStock",ticker])
+        GM_FS = int((df_cy.loc["GrossProfit",ticker]/df_cy.loc["TotRevenue",ticker])>(df_py.loc["GrossProfit",ticker]/df_py.loc["TotRevenue",ticker]))
+        ATO_FS = int(df_cy.loc["TotRevenue",ticker]/((df_cy.loc["TotAssets",ticker]+df_py.loc["TotAssets",ticker])/2)>df_py.loc["TotRevenue",ticker]/((df_py.loc["TotAssets",ticker]+df_py2.loc["TotAssets",ticker])/2))
+        f_score[ticker] = [ROA_FS,CFO_FS,ROA_D_FS,CFO_ROA_FS,LTD_FS,CR_FS,DILUTION_FS,GM_FS,ATO_FS]
+    f_score_df = pd.DataFrame(f_score,index=["PosROA","PosCFO","ROAChange","Accruals","Leverage","Liquidity","Dilution","GM","ATO"])
+    return f_score_df
+
+# Selecting stocks with highest Piotroski f score
+transformed_df_cy = info_filter(combined_financials_cy,stats,indx)
+transformed_df_py = info_filter(combined_financials_py,stats,indx)
+transformed_df_py2 = info_filter(combined_financials_py2,stats,indx)
+
+f_score_df = piotroski_f(transformed_df_cy,transformed_df_py,transformed_df_py2)
+f_score_df.sum().sort_values(ascending=False)
+
+
+
+
+
+Code 17
+
+Magic formulas
+
+# ============================================================================
+# Greenblatt's Magic Formula Implementation
+# Author - Mayank Rasu
+
+# Please report bugs/issues in the Q&A section
+# =============================================================================
+
+
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+
+tickers = ["AXP","AAPL","BA","CAT","CVX","CSCO","DIS","DOW", "XOM",
+           "HD","IBM","INTC","JNJ","KO","MCD","MMM","MRK","MSFT",
+           "NKE","PFE","PG","TRV","UTX","UNH","VZ","V","WMT","WBA"]
+
+#list of tickers whose financial data needs to be extracted
+financial_dir = {}
+
+for ticker in tickers:
+    try:
+    #getting balance sheet data from yahoo finance for the given ticker
+        temp_dir = {}
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/balance-sheet?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+        
+        #getting income statement data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/financials?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+        
+        #getting cashflow statement data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/cash-flow?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.find_all("div", {"class" : "M(0) Whs(n) BdEnd Bdc($seperatorColor) D(itb)"})
+        for t in tabl:
+            rows = t.find_all("div", {"class" : "rw-expnded"})
+            for row in rows:
+                temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[1]
+        
+        #getting key statistics data from yahoo finance for the given ticker
+        url = 'https://in.finance.yahoo.com/quote/'+ticker+'/key-statistics?p='+ticker
+        page = requests.get(url)
+        page_content = page.content
+        soup = BeautifulSoup(page_content,'html.parser')
+        tabl = soup.findAll("table", {"class": "W(100%) Bdcl(c) "}) # try soup.findAll("table") if this line gives error 
+        for t in tabl:
+            rows = t.find_all("tr")
+            for row in rows:
+                if len(row.get_text(separator='|').split("|")[0:2])>0:
+                    temp_dir[row.get_text(separator='|').split("|")[0]]=row.get_text(separator='|').split("|")[-1]    
+        
+        #combining all extracted information with the corresponding ticker
+        financial_dir[ticker] = temp_dir
+    except:
+        print("Problem scraping data for ",ticker)
+
+
+#storing information in pandas dataframe
+combined_financials = pd.DataFrame(financial_dir)
+combined_financials.dropna(how='all',axis=1,inplace=True) #dropping columns with all NaN values
+tickers = combined_financials.columns #updating the tickers list based on only those tickers whose values were successfully extracted
+for ticker in tickers:
+    combined_financials = combined_financials[~combined_financials[ticker].str.contains("[a-z]").fillna(False)]
+
+# creating dataframe with relevant financial information for each stock using fundamental data
+stats = ["EBITDA",
+         "Depreciation & amortisation",
+         "Market cap (intra-day)",
+         "Net income available to common shareholders",
+         "Net cash provided by operating activities",
+         "Capital expenditure",
+         "Total current assets",
+         "Total current liabilities",
+         "Net property, plant and equipment",
+         "Total stockholders' equity",
+         "Long-term debt",
+         "Forward annual dividend yield"] # change as required
+
+indx = ["EBITDA","D&A","MarketCap","NetIncome","CashFlowOps","Capex","CurrAsset",
+        "CurrLiab","PPE","BookValue","TotDebt","DivYield"]
+all_stats = {}
+for ticker in tickers:
+    try:
+        temp = combined_financials[ticker]
+        ticker_stats = []
+        for stat in stats:
+            ticker_stats.append(temp.loc[stat])
+        all_stats['{}'.format(ticker)] = ticker_stats
+    except:
+        print("can't read data for ",ticker)
+
+
+# cleansing of fundamental data imported in dataframe
+all_stats_df = pd.DataFrame(all_stats,index=indx)
+all_stats_df[tickers] = all_stats_df[tickers].replace({',': ''}, regex=True)
+all_stats_df[tickers] = all_stats_df[tickers].replace({'M': 'E+03'}, regex=True)
+all_stats_df[tickers] = all_stats_df[tickers].replace({'B': 'E+06'}, regex=True)
+all_stats_df[tickers] = all_stats_df[tickers].replace({'T': 'E+09'}, regex=True)
+all_stats_df[tickers] = all_stats_df[tickers].replace({'%': 'E-02'}, regex=True)
+for ticker in all_stats_df.columns:
+    all_stats_df[ticker] = pd.to_numeric(all_stats_df[ticker].values,errors='coerce')
+all_stats_df.dropna(axis=1,inplace=True)
+tickers = all_stats_df.columns
+
+# calculating relevant financial metrics for each stock
+transpose_df = all_stats_df.transpose()
+final_stats_df = pd.DataFrame()
+final_stats_df["EBIT"] = transpose_df["EBITDA"] - transpose_df["D&A"]
+final_stats_df["TEV"] =  transpose_df["MarketCap"].fillna(0) \
+                         +transpose_df["TotDebt"].fillna(0) \
+                         -(transpose_df["CurrAsset"].fillna(0)-transpose_df["CurrLiab"].fillna(0))
+final_stats_df["EarningYield"] =  final_stats_df["EBIT"]/final_stats_df["TEV"]
+final_stats_df["FCFYield"] = (transpose_df["CashFlowOps"]-transpose_df["Capex"])/transpose_df["MarketCap"]
+final_stats_df["ROC"]  = (transpose_df["EBITDA"] - transpose_df["D&A"])/(transpose_df["PPE"]+transpose_df["CurrAsset"]-transpose_df["CurrLiab"])
+final_stats_df["BookToMkt"] = transpose_df["BookValue"]/transpose_df["MarketCap"]
+final_stats_df["DivYield"] = transpose_df["DivYield"]
+
+
+################################Output Dataframes##############################
+
+# finding value stocks based on Magic Formula
+final_stats_val_df = final_stats_df.loc[tickers,:]
+final_stats_val_df["CombRank"] = final_stats_val_df["EarningYield"].rank(ascending=False,na_option='bottom')+final_stats_val_df["ROC"].rank(ascending=False,na_option='bottom')
+final_stats_val_df["MagicFormulaRank"] = final_stats_val_df["CombRank"].rank(method='first')
+value_stocks = final_stats_val_df.sort_values("MagicFormulaRank").iloc[:,[2,4,8]]
+print("------------------------------------------------")
+print("Value stocks based on Greenblatt's Magic Formula")
+print(value_stocks)
+
+
+# finding highest dividend yield stocks
+high_dividend_stocks = final_stats_df.sort_values("DivYield",ascending=False).iloc[:,6]
+print("------------------------------------------------")
+print("Highest dividend paying stocks")
+print(high_dividend_stocks)
+
+
+# # Magic Formula & Dividend yield combined
+final_stats_df["CombRank"] = final_stats_df["EarningYield"].rank(ascending=False,method='first') \
+                              +final_stats_df["ROC"].rank(ascending=False,method='first')  \
+                              +final_stats_df["DivYield"].rank(ascending=False,method='first')
+final_stats_df["CombinedRank"] = final_stats_df["CombRank"].rank(method='first')
+value_high_div_stocks = final_stats_df.sort_values("CombinedRank").iloc[:,[2,4,6,8]]
+print("------------------------------------------------")
+print("Magic Formula and Dividend Yield combined")
+print(value_high_div_stocks)
+
+
+Code-18
+
+Ranko macd graph
+
+
+# =============================================================================
+# Backtesting strategy - IV : combining renko with other MACD
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import numpy as np
+import pandas as pd
+from stocktrends import Renko
+import statsmodels.api as sm
+from alpha_vantage.timeseries import TimeSeries
+import copy
+
+def MACD(DF,a,b,c):
+    """function to calculate MACD
+       typical values a = 12; b =26, c =9"""
+    df = DF.copy()
+    df["MA_Fast"]=df["Adj Close"].ewm(span=a,min_periods=a).mean()
+    df["MA_Slow"]=df["Adj Close"].ewm(span=b,min_periods=b).mean()
+    df["MACD"]=df["MA_Fast"]-df["MA_Slow"]
+    df["Signal"]=df["MACD"].ewm(span=c,min_periods=c).mean()
+    df.dropna(inplace=True)
+    return (df["MACD"],df["Signal"])
+
+def ATR(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['High']-df['Low'])
+    df['H-PC']=abs(df['High']-df['Adj Close'].shift(1))
+    df['L-PC']=abs(df['Low']-df['Adj Close'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis=1)
+    return df2
+
+def slope(ser,n):
+    "function to calculate the slope of n consecutive points on a plot"
+    slopes = [i*0 for i in range(n-1)]
+    for i in range(n,len(ser)+1):
+        y = ser[i-n:i]
+        x = np.array(range(n))
+        y_scaled = (y - y.min())/(y.max() - y.min())
+        x_scaled = (x - x.min())/(x.max() - x.min())
+        x_scaled = sm.add_constant(x_scaled)
+        model = sm.OLS(y_scaled,x_scaled)
+        results = model.fit()
+        slopes.append(results.params[-1])
+    slope_angle = (np.rad2deg(np.arctan(np.array(slopes))))
+    return np.array(slope_angle)
+
+def renko_DF(DF):
+    "function to convert ohlc data into renko bricks"
+    df = DF.copy()
+    df.reset_index(inplace=True)
+    df = df.iloc[:,[0,1,2,3,4,5]]
+    df.columns = ["date","open","high","low","close","volume"]
+    df2 = Renko(df)
+    df2.brick_size = max(0.5,round(ATR(DF,120)["ATR"][-1],0))
+    renko_df = df2.get_bricks()
+    renko_df["bar_num"] = np.where(renko_df["uptrend"]==True,1,np.where(renko_df["uptrend"]==False,-1,0))
+    for i in range(1,len(renko_df["bar_num"])):
+        if renko_df["bar_num"][i]>0 and renko_df["bar_num"][i-1]>0:
+            renko_df["bar_num"][i]+=renko_df["bar_num"][i-1]
+        elif renko_df["bar_num"][i]<0 and renko_df["bar_num"][i-1]<0:
+            renko_df["bar_num"][i]+=renko_df["bar_num"][i-1]
+    renko_df.drop_duplicates(subset="date",keep="last",inplace=True)
+    return renko_df
+
+
+def CAGR(DF):
+    "function to calculate the Cumulative Annual Growth Rate of a trading strategy"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["ret"]).cumprod()
+    n = len(df)/(252*78)
+    CAGR = (df["cum_return"].tolist()[-1])**(1/n) - 1
+    return CAGR
+
+def volatility(DF):
+    "function to calculate annualized volatility of a trading strategy"
+    df = DF.copy()
+    vol = df["ret"].std() * np.sqrt(252*78)
+    return vol
+
+def sharpe(DF,rf):
+    "function to calculate sharpe ratio ; rf is the risk free rate"
+    df = DF.copy()
+    sr = (CAGR(df) - rf)/volatility(df)
+    return sr
+    
+
+def max_dd(DF):
+    "function to calculate max drawdown"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["ret"]).cumprod()
+    df["cum_roll_max"] = df["cum_return"].cummax()
+    df["drawdown"] = df["cum_roll_max"] - df["cum_return"]
+    df["drawdown_pct"] = df["drawdown"]/df["cum_roll_max"]
+    max_dd = df["drawdown_pct"].max()
+    return max_dd
+
+# Download historical data for DJI constituent stocks
+
+tickers = ["MSFT","AAPL","FB","AMZN","INTC", "CSCO","VZ","IBM","QCOM","LYFT"]
+
+
+ohlc_intraday = {} # directory with ohlc value for each stock            
+key_path = "D:\\Udemy\\Quantitative Investing Using Python\\1_Getting Data\\AlphaVantage\\key.txt"
+ts = TimeSeries(key=open(key_path,'r').read(), output_format='pandas')
+
+attempt = 0 # initializing passthrough variable
+drop = [] # initializing list to store tickers whose close price was successfully extracted
+while len(tickers) != 0 and attempt <=5:
+    tickers = [j for j in tickers if j not in drop]
+    for i in range(len(tickers)):
+        try:
+            ohlc_intraday[tickers[i]] = ts.get_intraday(symbol=tickers[i],interval='5min', outputsize='full')[0]
+            ohlc_intraday[tickers[i]].columns = ["Open","High","Low","Adj Close","Volume"]
+            drop.append(tickers[i])      
+        except:
+            print(tickers[i]," :failed to fetch data...retrying")
+            continue
+    attempt+=1
+
+ 
+tickers = ohlc_intraday.keys() # redefine tickers variable after removing any tickers with corrupted data
+
+################################Backtesting####################################
+
+#Merging renko df with original ohlc df
+ohlc_renko = {}
+df = copy.deepcopy(ohlc_intraday)
+tickers_signal = {}
+tickers_ret = {}
+for ticker in tickers:
+    print("merging for ",ticker)
+    renko = renko_DF(df[ticker])
+    renko.columns = ["Date","open","high","low","close","uptrend","bar_num"]
+    df[ticker]["Date"] = df[ticker].index
+    ohlc_renko[ticker] = df[ticker].merge(renko.loc[:,["Date","bar_num"]],how="outer",on="Date")
+    ohlc_renko[ticker]["bar_num"].fillna(method='ffill',inplace=True)
+    ohlc_renko[ticker]["macd"]= MACD(ohlc_renko[ticker],12,26,9)[0]
+    ohlc_renko[ticker]["macd_sig"]= MACD(ohlc_renko[ticker],12,26,9)[1]
+    ohlc_renko[ticker]["macd_slope"] = slope(ohlc_renko[ticker]["macd"],5)
+    ohlc_renko[ticker]["macd_sig_slope"] = slope(ohlc_renko[ticker]["macd_sig"],5)
+    tickers_signal[ticker] = ""
+    tickers_ret[ticker] = []
+
+       
+#Identifying signals and calculating daily return
+for ticker in tickers:
+    print("calculating daily returns for ",ticker)
+    for i in range(len(ohlc_intraday[ticker])):
+        if tickers_signal[ticker] == "":
+            tickers_ret[ticker].append(0)
+            if i > 0:
+                if ohlc_renko[ticker]["bar_num"][i]>=2 and ohlc_renko[ticker]["macd"][i]>ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]>ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = "Buy"
+                elif ohlc_renko[ticker]["bar_num"][i]<=-2 and ohlc_renko[ticker]["macd"][i]<ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]<ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = "Sell"
+        
+        elif tickers_signal[ticker] == "Buy":
+            tickers_ret[ticker].append((ohlc_renko[ticker]["Adj Close"][i]/ohlc_renko[ticker]["Adj Close"][i-1])-1)
+            if i > 0:
+                if ohlc_renko[ticker]["bar_num"][i]<=-2 and ohlc_renko[ticker]["macd"][i]<ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]<ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = "Sell"
+                elif ohlc_renko[ticker]["macd"][i]<ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]<ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = ""
+                
+        elif tickers_signal[ticker] == "Sell":
+            tickers_ret[ticker].append((ohlc_renko[ticker]["Adj Close"][i-1]/ohlc_renko[ticker]["Adj Close"][i])-1)
+            if i > 0:
+                if ohlc_renko[ticker]["bar_num"][i]>=2 and ohlc_renko[ticker]["macd"][i]>ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]>ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = "Buy"
+                elif ohlc_renko[ticker]["macd"][i]>ohlc_renko[ticker]["macd_sig"][i] and ohlc_renko[ticker]["macd_slope"][i]>ohlc_renko[ticker]["macd_sig_slope"][i]:
+                    tickers_signal[ticker] = ""
+    ohlc_renko[ticker]["ret"] = np.array(tickers_ret[ticker])
+
+#calculating overall strategy's KPIs
+strategy_df = pd.DataFrame()
+for ticker in tickers:
+    strategy_df[ticker] = ohlc_renko[ticker]["ret"]
+strategy_df["ret"] = strategy_df.mean(axis=1)
+CAGR(strategy_df)
+sharpe(strategy_df,0.025)
+max_dd(strategy_df)  
+
+#visualizing strategy returns
+(1+strategy_df["ret"]).cumprod().plot()
+
+#calculating individual stock's KPIs
+cagr = {}
+sharpe_ratios = {}
+max_drawdown = {}
+for ticker in tickers:
+    print("calculating KPIs for ",ticker)      
+    cagr[ticker] =  CAGR(ohlc_renko[ticker])
+    sharpe_ratios[ticker] =  sharpe(ohlc_renko[ticker],0.025)
+    max_drawdown[ticker] =  max_dd(ohlc_renko[ticker])
+
+KPI_df = pd.DataFrame([cagr,sharpe_ratios,max_drawdown],index=["Return","Sharpe Ratio","Max Drawdown"])      
+KPI_df.T
+
+
+Code- 19 breakout
+
+# =============================================================================
+# Backtesting strategy - II : Intraday resistance breakout strategy
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import numpy as np
+import pandas as pd
+from alpha_vantage.timeseries import TimeSeries
+import copy
+import time
+
+
+def ATR(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['High']-df['Low'])
+    df['H-PC']=abs(df['High']-df['Close'].shift(1))
+    df['L-PC']=abs(df['Low']-df['Close'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].rolling(n).mean()
+    #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
+    df2 = df.drop(['H-L','H-PC','L-PC'],axis=1)
+    return df2['ATR']
+
+def CAGR(DF):
+    "function to calculate the Cumulative Annual Growth Rate of a trading strategy"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["ret"]).cumprod()
+    n = len(df)/(252*78)
+    CAGR = (df["cum_return"].tolist()[-1])**(1/n) - 1
+    return CAGR
+
+def volatility(DF):
+    "function to calculate annualized volatility of a trading strategy"
+    df = DF.copy()
+    vol = df["ret"].std() * np.sqrt(252*78)
+    return vol
+
+def sharpe(DF,rf):
+    "function to calculate sharpe ratio ; rf is the risk free rate"
+    df = DF.copy()
+    sr = (CAGR(df) - rf)/volatility(df)
+    return sr
+    
+
+def max_dd(DF):
+    "function to calculate max drawdown"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["ret"]).cumprod()
+    df["cum_roll_max"] = df["cum_return"].cummax()
+    df["drawdown"] = df["cum_roll_max"] - df["cum_return"]
+    df["drawdown_pct"] = df["drawdown"]/df["cum_roll_max"]
+    max_dd = df["drawdown_pct"].max()
+    return max_dd
+
+# Download historical data (monthly) for selected stocks
+
+tickers = ["MSFT","AAPL","FB","AMZN","INTC", "CSCO","VZ","IBM","TSLA","AMD"]
+         
+key_path = "D:\\Udemy\\Quantitative Investing Using Python\\1_Getting Data\\AlphaVantage\\key.txt"
+ts = TimeSeries(key=open(key_path,'r').read(), output_format='pandas')
+
+ohlc_intraday = {} # directory with ohlc value for each stock   
+api_call_count = 1
+ts = TimeSeries(key=open(key_path,'r').read(), output_format='pandas')
+start_time = time.time()
+for ticker in tickers:
+    data = ts.get_intraday(symbol=ticker,interval='5min', outputsize='full')[0]
+    api_call_count+=1
+    data.columns = ["Open","High","Low","Close","Volume"]
+    data = data.iloc[::-1]
+    data = data.between_time('09:35', '16:00') #remove data outside regular trading hours
+    ohlc_intraday[ticker] = data
+    if api_call_count==5:
+        api_call_count = 1
+        time.sleep(60 - ((time.time() - start_time) % 60.0))
+
+tickers = ohlc_intraday.keys() # redefine tickers variable after removing any tickers with corrupted data
+
+################################Backtesting####################################
+
+# calculating ATR and rolling max price for each stock and consolidating this info by stock in a separate dataframe
+ohlc_dict = copy.deepcopy(ohlc_intraday)
+tickers_signal = {}
+tickers_ret = {}
+for ticker in tickers:
+    print("calculating ATR and rolling max price for ",ticker)
+    ohlc_dict[ticker]["ATR"] = ATR(ohlc_dict[ticker],20)
+    ohlc_dict[ticker]["roll_max_cp"] = ohlc_dict[ticker]["High"].rolling(20).max()
+    ohlc_dict[ticker]["roll_min_cp"] = ohlc_dict[ticker]["Low"].rolling(20).min()
+    ohlc_dict[ticker]["roll_max_vol"] = ohlc_dict[ticker]["Volume"].rolling(20).max()
+    ohlc_dict[ticker].dropna(inplace=True)
+    tickers_signal[ticker] = ""
+    tickers_ret[ticker] = []
+
+
+# identifying signals and calculating daily return (stop loss factored in)
+for ticker in tickers:
+    print("calculating returns for ",ticker)
+    for i in range(len(ohlc_dict[ticker])):
+        if tickers_signal[ticker] == "":
+            tickers_ret[ticker].append(0)
+            if ohlc_dict[ticker]["High"][i]>=ohlc_dict[ticker]["roll_max_cp"][i] and \
+               ohlc_dict[ticker]["Volume"][i]>1.5*ohlc_dict[ticker]["roll_max_vol"][i-1]:
+                tickers_signal[ticker] = "Buy"
+            elif ohlc_dict[ticker]["Low"][i]<=ohlc_dict[ticker]["roll_min_cp"][i] and \
+               ohlc_dict[ticker]["Volume"][i]>1.5*ohlc_dict[ticker]["roll_max_vol"][i-1]:
+                tickers_signal[ticker] = "Sell"
+        
+        elif tickers_signal[ticker] == "Buy":
+            if ohlc_dict[ticker]["Low"][i]<ohlc_dict[ticker]["Close"][i-1] - ohlc_dict[ticker]["ATR"][i-1]:
+                tickers_signal[ticker] = ""
+                tickers_ret[ticker].append(((ohlc_dict[ticker]["Close"][i-1] - ohlc_dict[ticker]["ATR"][i-1])/ohlc_dict[ticker]["Close"][i-1])-1)
+            elif ohlc_dict[ticker]["Low"][i]<=ohlc_dict[ticker]["roll_min_cp"][i] and \
+               ohlc_dict[ticker]["Volume"][i]>1.5*ohlc_dict[ticker]["roll_max_vol"][i-1]:
+                tickers_signal[ticker] = "Sell"
+                tickers_ret[ticker].append((ohlc_dict[ticker]["Close"][i]/ohlc_dict[ticker]["Close"][i-1])-1)
+            else:
+                tickers_ret[ticker].append((ohlc_dict[ticker]["Close"][i]/ohlc_dict[ticker]["Close"][i-1])-1)
+                
+        elif tickers_signal[ticker] == "Sell":
+            if ohlc_dict[ticker]["High"][i]>ohlc_dict[ticker]["Close"][i-1] + ohlc_dict[ticker]["ATR"][i-1]:
+                tickers_signal[ticker] = ""
+                tickers_ret[ticker].append((ohlc_dict[ticker]["Close"][i-1]/(ohlc_dict[ticker]["Close"][i-1] + ohlc_dict[ticker]["ATR"][i-1]))-1)
+            elif ohlc_dict[ticker]["High"][i]>=ohlc_dict[ticker]["roll_max_cp"][i] and \
+               ohlc_dict[ticker]["Volume"][i]>1.5*ohlc_dict[ticker]["roll_max_vol"][i-1]:
+                tickers_signal[ticker] = "Buy"
+                tickers_ret[ticker].append((ohlc_dict[ticker]["Close"][i-1]/ohlc_dict[ticker]["Close"][i])-1)
+            else:
+                tickers_ret[ticker].append((ohlc_dict[ticker]["Close"][i-1]/ohlc_dict[ticker]["Close"][i])-1)
+                
+    ohlc_dict[ticker]["ret"] = np.array(tickers_ret[ticker])
+
+
+# calculating overall strategy's KPIs
+strategy_df = pd.DataFrame()
+for ticker in tickers:
+    strategy_df[ticker] = ohlc_dict[ticker]["ret"]
+strategy_df["ret"] = strategy_df.mean(axis=1)
+CAGR(strategy_df)
+sharpe(strategy_df,0.025)
+max_dd(strategy_df)  
+
+
+# vizualization of strategy return
+(1+strategy_df["ret"]).cumprod().plot()
+
+
+#calculating individual stock's KPIs
+cagr = {}
+sharpe_ratios = {}
+max_drawdown = {}
+for ticker in tickers:
+    print("calculating KPIs for ",ticker)      
+    cagr[ticker] =  CAGR(ohlc_dict[ticker])
+    sharpe_ratios[ticker] =  sharpe(ohlc_dict[ticker],0.025)
+    max_drawdown[ticker] =  max_dd(ohlc_dict[ticker])
+
+KPI_df = pd.DataFrame([cagr,sharpe_ratios,max_drawdown],index=["Return","Sharpe Ratio","Max Drawdown"])      
+KPI_df.T
+
+Code-20  portfolio rebalancing
+
+# =============================================================================
+# Backtesting strategy - I : Monthly portfolio rebalancing
+# Author : Mayank Rasu (http://rasuquant.com/wp/)
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import numpy as np
+import pandas as pd
+import yfinance as yf
+import datetime as dt
+import copy
+import matplotlib.pyplot as plt
+
+
+def CAGR(DF):
+    "function to calculate the Cumulative Annual Growth Rate of a trading strategy"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["mon_ret"]).cumprod()
+    n = len(df)/12
+    CAGR = (df["cum_return"].tolist()[-1])**(1/n) - 1
+    return CAGR
+
+def volatility(DF):
+    "function to calculate annualized volatility of a trading strategy"
+    df = DF.copy()
+    vol = df["mon_ret"].std() * np.sqrt(12)
+    return vol
+
+def sharpe(DF,rf):
+    "function to calculate sharpe ratio ; rf is the risk free rate"
+    df = DF.copy()
+    sr = (CAGR(df) - rf)/volatility(df)
+    return sr
+    
+
+def max_dd(DF):
+    "function to calculate max drawdown"
+    df = DF.copy()
+    df["cum_return"] = (1 + df["mon_ret"]).cumprod()
+    df["cum_roll_max"] = df["cum_return"].cummax()
+    df["drawdown"] = df["cum_roll_max"] - df["cum_return"]
+    df["drawdown_pct"] = df["drawdown"]/df["cum_roll_max"]
+    max_dd = df["drawdown_pct"].max()
+    return max_dd
+
+# Download historical data (monthly) for DJI constituent stocks
+
+tickers = ["MMM","AXP","T","BA","CAT","CVX","CSCO","KO", "XOM","GE","GS","HD",
+           "IBM","INTC","JNJ","JPM","MCD","MRK","MSFT","NKE","PFE","PG","TRV",
+           "UTX","UNH","VZ","V","WMT","DIS"]
+
+ohlc_mon = { } # directory with ohlc value for each stock            
+start = dt.datetime.today()-dt.timedelta(3650)
+end = dt.datetime.today()
+
+# looping over tickers and creating a dataframe with close prices
+for ticker in tickers:
+    ohlc_mon[ticker] = yf.download(ticker,start,end,interval='1mo')
+    ohlc_mon[ticker].dropna(inplace=True,how="all")
+ 
+tickers = ohlc_mon.keys() # redefine tickers variable after removing any tickers with corrupted data
+
+################################Backtesting####################################
+
+# calculating monthly return for each stock and consolidating return info by stock in a separate dataframe
+ohlc_dict = copy.deepcopy(ohlc_mon)
+return_df = pd.DataFrame()
+for ticker in tickers:
+    print("calculating monthly return for ",ticker)
+    ohlc_dict[ticker]["mon_ret"] = ohlc_dict[ticker]["Adj Close"].pct_change()
+    return_df[ticker] = ohlc_dict[ticker]["mon_ret"]
+
+
+# function to calculate portfolio return iteratively
+def pflio(DF,m,x):
+    """Returns cumulative portfolio return
+    DF = dataframe with monthly return info for all stocks
+    m = number of stock in the portfolio
+    x = number of underperforming stocks to be removed from portfolio monthly"""
+    df = DF.copy()
+    portfolio = []
+    monthly_ret = [0]
+    for i in range(1,len(df)):
+        if len(portfolio) > 0:
+            monthly_ret.append(df[portfolio].iloc[i,:].mean())
+            bad_stocks = df[portfolio].iloc[i,:].sort_values(ascending=True)[:x].index.values.tolist()
+            portfolio = [t for t in portfolio if t not in bad_stocks]
+        fill = m - len(portfolio)
+        new_picks = df.iloc[i,:].sort_values(ascending=False)[:fill].index.values.tolist()
+        portfolio = portfolio + new_picks
+        print(portfolio)
+    monthly_ret_df = pd.DataFrame(np.array(monthly_ret),columns=["mon_ret"])
+    return monthly_ret_df
+
+
+#calculating overall strategy's KPIs
+CAGR(pflio(return_df,6,3))
+sharpe(pflio(return_df,6,3),0.025)
+max_dd(pflio(return_df,6,3)) 
+
+#calculating KPIs for Index buy and hold strategy over the same period
+DJI = yf.download("^DJI",dt.date.today()-dt.timedelta(1900),dt.date.today(),interval='1mo')
+DJI["mon_ret"] = DJI["Adj Close"].pct_change()
+CAGR(DJI)
+sharpe(DJI,0.025)
+max_dd(DJI)
+
+#visualization
+fig, ax = plt.subplots()
+plt.plot((1+pflio(return_df,6,3)).cumprod())
+plt.plot((1+DJI["mon_ret"][2:].reset_index(drop=True)).cumprod())
+plt.title("Index Return vs Strategy Return")
+plt.ylabel("cumulative return")
+plt.xlabel("months")
+ax.legend(["Strategy Return","Index Return"])
+
+
+Code-21 ta-lib
+
+# =============================================================================
+# Ta-lib introduction
+# Author : Mayank Rasu
+
+# Please report bug/issues in the Q&A section
+# =============================================================================
+
+import numpy as np
+from alpha_vantage.timeseries import TimeSeries
+import copy
+import talib
+
+talib.get_function_groups() #get a list of talib functions by group 
+
+tickers = ["MSFT","AAPL","FB","AMZN","INTC", "CSCO","VZ","IBM","QCOM","LYFT"]
+
+# Extract OHLCV data for the tickers
+ohlc_tech = {} # directory with ohlc value for each stock            
+key_path = "D:\\Udemy\\Quantitative Investing Using Python\\1_Getting Data\\AlphaVantage\\key.txt"
+ts = TimeSeries(key=open(key_path,'r').read(), output_format='pandas')
+
+attempt = 0 # initializing passthrough variable
+drop = [] # initializing list to store tickers whose close price was successfully extracted
+while len(tickers) != 0 and attempt <=100:
+    tickers = [j for j in tickers if j not in drop]
+    for i in range(len(tickers)):
+        try:
+            ohlc_tech[tickers[i]] = ts.get_daily(symbol=tickers[i], outputsize='full')[0]
+            ohlc_tech[tickers[i]].columns = ["Open","High","Low","Adj Close","Volume"]
+            drop.append(tickers[i])      
+        except:
+            print(tickers[i]," :failed to fetch data...retrying")
+            continue
+    attempt+=1
+
+ 
+tickers = ohlc_tech.keys() # redefine tickers variable after removing any tickers with corrupted data
+ohlc_dict = copy.deepcopy(ohlc_tech) #create a copy of extracted data
+
+
+# Apply talib functions on each dataframe - refer documentation at https://mrjbq7.github.io/ta-lib/doc_index.html
+for ticker in tickers:
+    # Calculate momentum indicators (e.g. MACD, ADX, RSI etc.) using talib
+    ohlc_dict[ticker]["ADX"] = talib.ADX(ohlc_dict[ticker]["High"],
+                                        ohlc_dict[ticker]["Low"],
+                                        ohlc_dict[ticker]["Adj Close"],
+                                        timeperiod=14)
+    # Identify chart patterns (e.g. two crows, three crows, three inside, engulging pattern etc.)
+    ohlc_dict[ticker]["3I"] = talib.CDL3WHITESOLDIERS(ohlc_dict[ticker]["Open"],
+                                                 ohlc_dict[ticker]["High"],
+                                                 ohlc_dict[ticker]["Low"],
+                                                 ohlc_dict[ticker]["Adj Close"])
+    
+    # Statistical functions (e.g. beta, correlation etc.)
+    ohlc_dict[ticker]["Beta"] = talib.BETA(ohlc_dict[ticker]["High"],
+                                         ohlc_dict[ticker]["Low"],
+                                         timeperiod=14)
+
+
+
+
+
